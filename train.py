@@ -42,8 +42,8 @@ def train():
     val_batch_sampler = torch.utils.data.BatchSampler(val_sampler, args.batch_size, drop_last=True)
     train_batch_sampler = torch.utils.data.BatchSampler(train_sampler, args.batch_size, drop_last=True)
 
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_sampler=val_batch_sampler, collate_fn=CollateFunc(), num_workers=24, pin_memory=True)
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_sampler=train_batch_sampler, collate_fn=CollateFunc(), num_workers=24, pin_memory=True)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_sampler=val_batch_sampler, collate_fn=CollateFunc(), num_workers=args.num_workers, pin_memory=True)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_sampler=train_batch_sampler, collate_fn=CollateFunc(), num_workers=args.num_workers, pin_memory=True)
 
     # ----------------------- Build Model ----------------------------------------
     model = YOLOv1(args = args,
@@ -58,8 +58,11 @@ def train():
                           loss_box_weight = args.loss_box_weight
                           )
     
-    learning_rate = (args.batch_size/64)*args.lr
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=args.lr_momentum, weight_decay=args.lr_weight_decay)
+    grad_accumulate = max(args.grad_accumulate, round(64 / args.batch_size))
+    lr1 = (grad_accumulate*args.batch_size/64)*args.lr
+
+    
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr1, momentum=args.lr_momentum, weight_decay=args.lr_weight_decay)
     
     writer = SummaryWriter('results/log')
 
@@ -90,10 +93,14 @@ def train():
         model.train()
         train_loss = 0.0
         for iteration, (images, targets) in enumerate(train_dataloader):
+            ni = iteration + epoch * args.batch_size
             if epoch < args.warmup_epoch:
                 optimizer.param_groups[0]['lr'] = numpy.interp(epoch*len(train_dataloader)+iteration+1,
                                                                [0, args.warmup_epoch*len(train_dataloader)],
-                                                               [0, learning_rate])
+                                                               [0, lr1])
+                optimizer.param_groups[0]['momentum'] = numpy.interp(epoch*len(train_dataloader)+iteration+1,
+                                                                     [0, args.warmup_epoch*len(train_dataloader)],
+                                                                     [args.warmup_momentum, args.lr_momentum])
 
             images = images.to(device)
 
@@ -103,14 +110,20 @@ def train():
 
             # Compute loss
             loss_dic = criterion(outputs=outputs, targets=targets)
-            losses = loss_dic['losses'] #[loss_obj, loss_cls, loss_box, losses]
+            loss_obj, loss_cls, loss_box, losses = loss_dic.values
+            if grad_accumulate > 1:
+               loss_obj /= grad_accumulate
+               loss_cls /= grad_accumulate
+               loss_box /= grad_accumulate
+               losses /= grad_accumulate
             
             # Backward
             losses.backward()
             
-            # optimizer.step
-            optimizer.step()
-            optimizer.zero_grad()
+            if ni % grad_accumulate == 0:
+                # optimizer.step
+                optimizer.step()
+                optimizer.zero_grad()
 
             if iteration % args.print_frequency == 0 or iteration == len(train_dataloader):
                 print("Epoch [{}:{}/{}:{}], Time [{}] lr: {:4f}, Loss: {:.4f}, Loss_obj: {:.4f}, Loss_cls: {:.4f}, Loss_box: {:.4f}".
@@ -122,45 +135,46 @@ def train():
         train_loss /= len(train_dataloader.dataset)
         writer.add_scalar('Loss/Train', train_loss, epoch)
 
-        model.eval()
-        val_loss = 0.0  
-        with torch.no_grad():
-            for iteration, (images, targets) in enumerate(val_dataloader):
-                images = images.to(device).float()
-                outputs = model(images)  
-                loss_dic = criterion(outputs=outputs, targets=targets)
-                losses = loss_dic['losses'] #[loss_obj, loss_cls, loss_box, losses]
-
-                val_loss += losses.item() * images.size(0) 
-        val_loss /= len(val_dataloader.dataset) 
-        writer.add_scalar('Loss/val', val_loss, epoch)  
-
-        # save_model
-        if epoch >= args.save_epoch:
-            model.trainable = False
-            model.nms_thresh = args.nms_thresh
-            model.conf_thresh = args.conf_thresh
-
-            weight_name = '{}.pth'.format(epoch)
-            result_path = os.path.join(args.root, args.project, args.save_folder, str(epoch))
-            checkpoint_path = os.path.join(args.root, args.project, args.save_folder, weight_name)
-            
+        if epoch % 2 == 0:
+            model.eval()
+            val_loss = 0.0  
             with torch.no_grad():
-                mAP = evaluator.evaluate(model, result_path)
-            print("Epoch [{}]".format('-'*100))
-            print("Epoch [{}:{}], mAP [{:.4f}]".format(epoch, args.max_epoch, mAP))
-            print("Epoch [{}]".format('-'*100))
-            if mAP > max_mAP:
-                torch.save({'model': model.state_dict(),
-                            'mAP': mAP,
-                            'optimizer': optimizer.state_dict(),
-                            'epoch': epoch,
-                            'args': args},
-                            checkpoint_path)
-                max_mAP = mAP
-            
-            model.train()
-            model.trainable = True
+                for iteration, (images, targets) in enumerate(val_dataloader):
+                    images = images.to(device).float()
+                    outputs = model(images)  
+                    loss_dic = criterion(outputs=outputs, targets=targets)
+                    losses = loss_dic['losses'] #[loss_obj, loss_cls, loss_box, losses]
+
+                    val_loss += losses.item() * images.size(0) 
+            val_loss /= len(val_dataloader.dataset) 
+            writer.add_scalar('Loss/val', val_loss, epoch)  
+
+            # save_model
+            if epoch >= args.save_epoch:
+                model.trainable = False
+                model.nms_thresh = args.nms_thresh
+                model.conf_thresh = args.conf_thresh
+
+                weight_name = '{}.pth'.format(epoch)
+                result_path = os.path.join(args.root, args.project, args.save_folder, str(epoch))
+                checkpoint_path = os.path.join(args.root, args.project, args.save_folder, weight_name)
+                
+                with torch.no_grad():
+                    mAP = evaluator.evaluate(model, result_path)
+                print("Epoch [{}]".format('-'*100))
+                print("Epoch [{}:{}], mAP [{:.4f}]".format(epoch, args.max_epoch, mAP))
+                print("Epoch [{}]".format('-'*100))
+                if mAP > max_mAP:
+                    torch.save({'model': model.state_dict(),
+                                'mAP': mAP,
+                                'optimizer': optimizer.state_dict(),
+                                'epoch': epoch,
+                                'args': args},
+                                checkpoint_path)
+                    max_mAP = mAP
+                
+                model.train()
+                model.trainable = True
 
 if __name__ == "__main__":
     train()

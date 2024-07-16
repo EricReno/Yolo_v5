@@ -7,8 +7,8 @@ def parse_args():
     General configuration
     """
     # path
-    parser.add_argument('--root', default='/data/ryb/', help='The root directory where code and data are stored')
-    # parser.add_argument('--root', default='E://', help='The root directory where code and data are stored')
+    # parser.add_argument('--root', default='/data/ryb/', help='The root directory where code and data are stored')
+    parser.add_argument('--root', default='E://', help='The root directory where code and data are stored')
     parser.add_argument('--data', default='data/VOCdevkit', help='The path where the dataset is stored')
     parser.add_argument('--project', default='Yolo', help='The path where the project code is stored')
     # env
@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument('--print_frequency', default=10, type=int, help='The print frequency')
 
     # data
-    parser.add_argument('--num_workers', default=24, help='epoch for warm_up')
+    parser.add_argument('--num_workers', default=16, help='epoch for warm_up')
     parser.add_argument('--img_size',   default=640, type=int, help='input image size')
     parser.add_argument('--val_sets',   default=[('2007', 'test')], help='The data set to be tested')
     parser.add_argument('--train_sets', default=[('2007', 'trainval'), ('2012', 'trainval')], help='The data set to be trained')
@@ -39,9 +39,12 @@ def parse_args():
     parser.add_argument('--lr_momentum', default=0.937, help='lr_momentum')
     parser.add_argument('--lr_weight_decay', default=0.0005, help='lr_weight_decay')
     parser.add_argument('--warmup_epoch', default=3, help='epoch for warm_up')
+    parser.add_argument('--warmup_momentum', default=0.8, help='epoch for warm_up')
+
+    parser.add_argument('--grad_accumulate', default=1, type=int, help='gradient accumulation')
 
     parser.add_argument('--resume', default='None', type=str, help=['None','44.pth'])
-    parser.add_argument('--batch_size', default=32, help='The batch size used by a single GPU during training')
+    parser.add_argument('--batch_size', default=4, help='The batch size used by a single GPU during training')
     parser.add_argument('--save_folder', default='results', help='The path for wights')
     parser.add_argument('--max_epoch', default=135, help='The maximum epoch used in this training')
     parser.add_argument('--save_epoch', default=0, help='The epoch when the model parameters are saved')
