@@ -8,7 +8,7 @@ from config import parse_args
 from model.yolov1 import YOLOv1
 import torch.nn.functional as F
 from dataset.voc import VOCDataset
-from dataset.augment import build_transform
+from dataset.augment import Augmentation
 
 def inference(args,
               dev,
@@ -23,6 +23,7 @@ def inference(args,
             image = image.unsqueeze(dim = 0).to(dev)
 
             outputs = model(image)
+
 
             ## origin image
             image, _ = dataset.pull_image(index)
@@ -46,11 +47,11 @@ def inference(args,
                 cv2.rectangle(image, (box[0], box[1]),  (box[0] + tw, box[1] + th), (0, 64, 255), -1) 
                 cv2.putText(image, text, (box[0], box[1]+th), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 1)
             
-           
             if args.real_time:
                 fps = 1 / (time.time() - start_time)
                 cv2.putText(image, 'FPS: '+str(round(fps,2)), (0, 30), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 1)
                 cv2.imshow('image', image)
+                time.sleep(1)
 
                 # 退出循环的按键（通常是'q'键）  
                 if cv2.waitKey(1) == ord('q'):  
@@ -61,7 +62,7 @@ def inference(args,
                     if len(ids) != 0:
                         class_bboxes = bboxes[ids]
                         class_scores = scores[ids]
-                        class_result_path = os.path.join(os.getcwd(), 'results', args.weight.replace('.pth', ''), args.class_names[label_id])
+                        class_result_path = os.path.join(os.getcwd(), 'results', args.eval_weight.replace('.pth', ''), args.class_names[label_id])
                         if not os.path.exists(class_result_path):
                             os.makedirs(class_result_path)
 
@@ -86,11 +87,12 @@ if __name__ == "__main__":
         device = torch.device('cpu')
 
     # -------------------- Build Data --------------------
-    val_transformer = build_transform(args, is_train = False)
+    val_trans = Augmentation(args.img_size, args.data_augmentation, is_train=False)
+
     val_dataset = VOCDataset(
                             data_dir     = os.path.join(args.root, args.data),
                             image_sets   = args.val_sets,
-                            transform    = val_transformer,
+                            transform    = val_trans,
                             is_train     = False,
                             )
     
@@ -100,7 +102,7 @@ if __name__ == "__main__":
                    trainable = False,
                    nms_thresh = args.nms_thresh,
                    conf_thresh = args.conf_thresh)
-    weight_path = os.path.join(args.root, args.project, 'results', args.weight)
+    weight_path = os.path.join(args.root, args.project, 'results', args.eval_weight)
     checkpoint = torch.load(weight_path, map_location='cpu')
     checkpoint_state_dict = checkpoint["model"]
     model.load_state_dict(checkpoint_state_dict)

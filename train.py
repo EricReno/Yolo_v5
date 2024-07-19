@@ -7,6 +7,7 @@ from loss import Criterion
 from eval import VOCEvaluator
 from config import parse_args
 from model.yolov1 import YOLOv1
+from model.utils import ModelEMA
 from dataset.voc import VOCDataset
 from dataset.utils import CollateFunc
 from dataset.augment import Augmentation
@@ -14,7 +15,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 def train():
     args = parse_args()
-    print("Setting Arguments.. : ", args)
+    writer = SummaryWriter('log')
+    print("Setting Arguments.. : ")
+    for k, v in sorted(vars(args).items()):
+        print(k, '=', v)
     print("--------------------------------------------------------")
 
     if args.cuda and torch.cuda.is_available():
@@ -23,34 +27,31 @@ def train():
         device = torch.device('cpu')
 
     # ---------------------------- Build Datasets ----------------------------
-    val_transformer = Augmentation(args.img_size, args.data_augmentation, is_train=False)
-    train_transformer = Augmentation(args.img_size, args.data_augmentation, is_train=True)
-
+    val_trans = Augmentation(args.img_size, args.data_augmentation, is_train=False)
     val_dataset = VOCDataset(data_dir     = os.path.join(args.root, args.data),
                              image_sets   = args.val_sets,
-                             transform    = val_transformer,
+                             transform    = val_trans,
                              is_train     = False)
+    val_sampler = torch.utils.data.RandomSampler(val_dataset)
+    val_b_sampler = torch.utils.data.BatchSampler(val_sampler, args.batch_size, drop_last=True)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_sampler=val_b_sampler, collate_fn=CollateFunc(), num_workers=args.num_workers, pin_memory=True)
+    
+    train_trans = Augmentation(args.img_size, args.data_augmentation, is_train=True)
     train_dataset = VOCDataset(img_size   = args.img_size,
                                data_dir   = os.path.join(args.root, args.data),
                                image_sets = args.train_sets,
-                               transform  = train_transformer,
+                               transform  = train_trans,
                                is_train   = True)
-
-    val_sampler = torch.utils.data.RandomSampler(val_dataset)
     train_sampler = torch.utils.data.RandomSampler(train_dataset)
-
-    val_batch_sampler = torch.utils.data.BatchSampler(val_sampler, args.batch_size, drop_last=True)
-    train_batch_sampler = torch.utils.data.BatchSampler(train_sampler, args.batch_size, drop_last=True)
-
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_sampler=val_batch_sampler, collate_fn=CollateFunc(), num_workers=args.num_workers, pin_memory=True)
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_sampler=train_batch_sampler, collate_fn=CollateFunc(), num_workers=args.num_workers, pin_memory=True)
+    train_b_sampler = torch.utils.data.BatchSampler(train_sampler, args.batch_size, drop_last=True)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_sampler=train_b_sampler, collate_fn=CollateFunc(), num_workers=args.num_workers, pin_memory=True)
 
     # ----------------------- Build Model ----------------------------------------
     model = YOLOv1(args = args,
                    device = device,
                    trainable = True,
                    ).to(device)
-   
+      
     criterion = Criterion(device = device,
                           num_classes = args.num_classes,
                           loss_obj_weight = args.loss_obj_weight,
@@ -60,22 +61,24 @@ def train():
     
     grad_accumulate = max(args.grad_accumulate, round(64 / args.batch_size))
     lr1 = (grad_accumulate*args.batch_size/64)*args.lr
-
     
     optimizer = torch.optim.SGD(model.parameters(), lr=lr1, momentum=args.lr_momentum, weight_decay=args.lr_weight_decay)
     
-    writer = SummaryWriter('results/log')
 
     max_mAP = 0
-    resume_epoch = 0
+    start_epoch = 0
     if args.resume != "None":
         ckt_pth = os.path.join(args.root, args.project, 'results', args.resume)
         checkpoint = torch.load(ckt_pth, map_location='cpu')
-        
         max_mAP = checkpoint['mAP']
-        resume_epoch = checkpoint['epoch'] + 1         
+        start_epoch = checkpoint['epoch'] + 1
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint['optimizer'])  
+
+    if args.ema:
+        model_ema = ModelEMA({'ema_decay': 0.9998, 'ema_tau': 2000}, model, start_epoch * len(train_dataloader))
+    else:
+        model_ema = None
 
     evaluator = VOCEvaluator(
         device=device,
@@ -89,7 +92,7 @@ def train():
 
     # ----------------------- Build Train ----------------------------------------
     start = time.time()
-    for epoch in range(resume_epoch, args.max_epoch):
+    for epoch in range(start_epoch, args.max_epoch):
         model.train()
         train_loss = 0.0
         for iteration, (images, targets) in enumerate(train_dataloader):
@@ -110,7 +113,7 @@ def train():
 
             # Compute loss
             loss_dic = criterion(outputs=outputs, targets=targets)
-            loss_obj, loss_cls, loss_box, losses = loss_dic.values
+            loss_obj, loss_cls, loss_box, losses = loss_dic.values()
             if grad_accumulate > 1:
                loss_obj /= grad_accumulate
                loss_cls /= grad_accumulate
@@ -125,6 +128,10 @@ def train():
                 optimizer.step()
                 optimizer.zero_grad()
 
+                # ema
+                if model_ema is not None:
+                    model_ema.update(model)
+
             if iteration % args.print_frequency == 0 or iteration == len(train_dataloader):
                 print("Epoch [{}:{}/{}:{}], Time [{}] lr: {:4f}, Loss: {:.4f}, Loss_obj: {:.4f}, Loss_cls: {:.4f}, Loss_box: {:.4f}".
                     format(epoch, args.max_epoch, iteration, len(train_dataloader), time.strftime('%H:%M:%S', time.gmtime(time.time()- start)), 
@@ -136,6 +143,7 @@ def train():
         writer.add_scalar('Loss/Train', train_loss, epoch)
 
         if epoch % 2 == 0:
+            model = model if model_ema is None else model_ema.ema
             model.eval()
             val_loss = 0.0  
             with torch.no_grad():
@@ -161,6 +169,8 @@ def train():
                 
                 with torch.no_grad():
                     mAP = evaluator.evaluate(model, result_path)
+                
+                writer.add_scalar('mAP', mAP, epoch)
                 print("Epoch [{}]".format('-'*100))
                 print("Epoch [{}:{}], mAP [{:.4f}]".format(epoch, args.max_epoch, mAP))
                 print("Epoch [{}]".format('-'*100))

@@ -155,6 +155,12 @@ class YOLOv1(nn.Module):
         scores = scores[keep]
         labels = labels[keep]
 
+        print(len(bboxes))
+        print(bboxes)
+        import time
+        time.sleep(100)
+
+
         # nms
         scores, labels, bboxes = self.multiclass_nms_class_aware(
             scores, labels, bboxes, self.nms_thresh, self.num_classes)
