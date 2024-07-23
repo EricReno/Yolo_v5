@@ -102,6 +102,7 @@ def infer(input, onnx, cuda):
     output = session.run(['output'], {'input': input})
 
     end = time.time() - start
+    print(end)
     print("Inference time (Hz):", 1 / end)
 
     return output
@@ -146,11 +147,10 @@ if __name__ == "__main__":
     args = parse_args()
 
     images_list = [os.path.join(os.path.abspath(args.image_path), _) for _ in os.listdir(args.image_path)]
-    for image in images_list:
-
+    for image_path in images_list:
         start_time = time.time()
         ## TODO ONE
-        image, infer_input, ratio = preinfer(image, args.image_size)
+        image, infer_input, ratio = preinfer(image_path, args.image_size)
 
         ## TODO TWO
         postinfer_input = infer(infer_input, args.onnx, args.cuda) # 400*(4+20)
@@ -180,8 +180,24 @@ if __name__ == "__main__":
             cv2.rectangle(image, (0, 0), (w, h), (255, 255, 255), -1) 
             cv2.putText(image, text, (0, h), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 0), 1)
 
-        cv2.imshow('image', image)
+       
+        for label_id in range(len(args.class_names)):
+            ids = numpy.where(labels == label_id)[0]
+            if len(ids) != 0:
+                c_bboxes = bboxes[ids]
+                c_scores = scores[ids]
+                c_result = os.path.join(os.getcwd(), 'results', args.class_names[label_id])
+                if not os.path.exists(c_result):
+                    os.makedirs(c_result)
 
-        # 退出循环的按键（通常是'q'键）  
-        if cv2.waitKey(2) == ord('q'):  
-            break
+                cv2.imwrite(os.path.join(c_result, os.path.basename(image_path)), image)
+
+                filename = os.path.join(c_result, 'det_test_%s.txt'%(args.class_names[label_id]))
+                with open(filename, 'a+') as f:
+                    for j, box in enumerate(c_bboxes):
+                        f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.format(
+                            os.path.basename(image_path), 
+                            c_scores[j],
+                            box[0], box[1], box[2], box[3]))
+        
+        print('Inference: {} / {}'.format(i, len(images_list)), end='\r')
