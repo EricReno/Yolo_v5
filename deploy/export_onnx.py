@@ -4,7 +4,7 @@ import onnx
 import torch
 sys.path.append('../')
 from config import parse_args
-from model.yolov1 import YOLOv1
+from model.yolo_v1 import YOLOv1
 
 def export(input, model, pt_path, onnx_name):
     model.eval()
