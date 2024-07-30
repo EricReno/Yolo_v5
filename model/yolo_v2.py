@@ -3,20 +3,11 @@ import argparse
 import numpy as np
 import torch.nn as nn
 
-class Conv2d(nn.Module):
-    def __init__(self, c1, c2, kernel_size = 1, stride = 1, padding = 0, dilation = 1) -> None:
-        super(Conv2d, self).__init__()
-        
-        convs = []
-        convs.append(nn.Conv2d(c1, c2, kernel_size, stride, padding, dilation, groups=1, bias=False))
-        convs.append(nn.LeakyReLU(negative_slope=0.1))
-        
-        self.convs = torch.nn.Sequential(*convs)
-    
-    def forward(self, x):
-        return self.convs(x)
+from neck import Reorg
+from head import Decouple
+from backbone import Darknet19
 
-class YOLOv1(nn.Module):
+class Yolo_V2(nn.Module):
     def __init__(self, 
                  device,
                  batch_size,
@@ -26,9 +17,9 @@ class YOLOv1(nn.Module):
                  conf_thresh,
                  boxes_per_cell
                  ):
-        super(YOLOv1, self).__init__()
+        super(Yolo_V2, self).__init__()
 
-        self.stride = 64                           
+        self.stride = 32                           
         self.deploy = False
         self.device = device
         self.trainable = False
@@ -38,73 +29,24 @@ class YOLOv1(nn.Module):
         self.num_classes = num_classes
         self.conf_thresh = conf_thresh
         self.boxes_per_cell = boxes_per_cell
+        self.anchor_size = torch.as_tensor([[17,  25],
+                    [55,  75],
+                    [92,  206],
+                    [202, 21],
+                    [289, 311]]).float().view(-1, 2) # [A, 2]   # 416 scale
 
         self.cell_size = self.image_size//self.stride
         self.boundary1 = self.cell_size * self.cell_size * self.num_classes                      #类似于 7*7*20
         self.boundary2 = self.boundary1 + self.cell_size * self.cell_size * self.boxes_per_cell  #类似于 7*7*20 + 7*7*2
         
-        layers1 = [
-            Conv2d(3, 64, kernel_size=7, stride=2, padding=3),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        ]
-        self.layer1 = nn.Sequential(*layers1)
+        self.neck = Reorg()
+        self.head = Decouple()
+        self.backbone = Darknet19()
 
-        layers2 = [
-            Conv2d(64, 192, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        ]
-        self.layer2 = nn.Sequential(*layers2)
+        self.obj_pred = nn.Conv2d(512, 1*self.boxes_per_cell, kernel_size=1)
+        self.cls_pred = nn.Conv2d(512, self.num_classes*self.boxes_per_cell, kernel_size=1)
+        self.reg_pred = nn.Conv2d(512, 4*self.boxes_per_cell, kernel_size=1)
 
-        layers3 = [
-            Conv2d(192, 128, kernel_size=1, stride=1, padding=0),
-            Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
-            Conv2d(256, 256, kernel_size=1, stride=1, padding=0),
-            Conv2d(256, 512, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        ]
-        self.layer3 = nn.Sequential(*layers3)
-
-        layers4 = []
-        for _ in range(4):
-            layers4.append(Conv2d(512, 256, kernel_size=1, stride=1, padding=0))
-            layers4.append(Conv2d(256, 512, kernel_size=3, stride=1, padding=1))
-        layers4.extend([
-            Conv2d(512, 512, kernel_size=1, stride=1, padding=0),
-            Conv2d(512, 1024, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(kernel_size=2, stride=2)])
-        self.layer4 = nn.Sequential(*layers4)
-
-        layers5 = []
-        for _ in range(2):
-            layers5.append(Conv2d(1024, 512, kernel_size=1, stride=1, padding=0))
-            layers5.append(Conv2d(512, 1024, kernel_size=3, stride=1, padding=1))
-        layers5.extend([
-            Conv2d(1024, 1024, kernel_size=3, stride=1, padding=1),
-            Conv2d(1024, 1024, kernel_size=3, stride=2, padding=1)])
-        self.layer5 = nn.Sequential(*layers5)
-
-        layers6 = [
-            Conv2d(1024, 1024, kernel_size=3, stride=1, padding=1),
-            Conv2d(1024, 1024, kernel_size=3, stride=1, padding=1)
-        ]
-        self.layer6 = nn.Sequential(*layers6)
-
-        layers7 = [
-            nn.Linear(self.cell_size*self.cell_size*1024, 2048, bias=True),
-            nn.Dropout(p=0.5),
-            nn.Linear(2048, self.cell_size*self.cell_size*(self.boxes_per_cell*5+self.num_classes), bias=True),
-        ]
-        self.layer7 = nn.Sequential(*layers7)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
 
     def create_grid(self, fmp_size):
         """ 
@@ -125,15 +67,42 @@ class YOLOv1(nn.Module):
 
         return grid_xy
 
-    def decode_boxes(self, pred, fmp_size):
+    def generate_anchors(self, fmp_size):
+        """
+            fmp_size: (List) [H, W]
+        """
+        fmp_h, fmp_w = fmp_size
+
+        # generate grid cells
+        anchor_y, anchor_x = torch.meshgrid([torch.arange(fmp_h), torch.arange(fmp_w)])
+        anchor_xy = torch.stack([anchor_x, anchor_y], dim=-1).float().view(-1, 2)
+
+        # [HW, 2] -> [HW, A, 2] -> [M, 2]
+        anchor_xy = anchor_xy.unsqueeze(1).repeat(1, self.boxes_per_cell, 1)
+        anchor_xy = anchor_xy.view(-1, 2).to(self.device)
+
+        # [A, 2] -> [1, A, 2] -> [HW, A, 2] -> [M, 2]
+        anchor_wh = self.anchor_size.unsqueeze(0).repeat(fmp_h*fmp_w, 1, 1)
+        anchor_wh = anchor_wh.view(-1, 2).to(self.device)
+
+        anchors = torch.cat([anchor_xy, anchor_wh], dim=-1)
+
+        return anchors
+    
+    def decode_boxes(self, anchors, reg_pred):
         """
             将txtytwth转换为常用的x1y1x2y2形式。
         """
-        grid_cell = self.create_grid(fmp_size)
-        pred[..., :2] = (pred[..., :2] + grid_cell) * self.stride
-        pred[..., 2:] = pred[..., 2:] * self.stride * fmp_size[0]
+        # 计算预测边界框的中心点坐标和宽高
+        pred_ctr = (torch.sigmoid(reg_pred[..., :2]) + anchors[..., :2]) * self.stride
+        pred_wh = torch.exp(reg_pred[..., 2:]) * anchors[..., 2:]
 
-        return pred
+        # 将所有bbox的中心带你坐标和宽高换算成x1y1x2y2形式
+        pred_x1y1 = pred_ctr - pred_wh * 0.5
+        pred_x2y2 = pred_ctr + pred_wh * 0.5
+        pred_box = torch.cat([pred_x1y1, pred_x2y2], dim=-1)
+
+        return pred_box
 
     ## basic NMS
     def nms(self, bboxes, scores, nms_thresh):
@@ -243,48 +212,45 @@ class YOLOv1(nn.Module):
         return outputs
 
     def forward(self, x):
-        f1 = self.layer1(x)    #[B, 192, H/4, W/4]
-        f2 = self.layer2(f1)   #[B, 256, H/8, W/8]
-        f3 = self.layer3(f2)   #[B, 512, H/16, W/16]
-        f4 = self.layer4(f3)   #[B, 1024, H/32, W/32]
-        f5 = self.layer5(f4)   #[B, 1024, H/64, W/64]
-        f6 = self.layer6(f5)   #[B, 1024, H/64, W/64]
-        f7 = self.layer7(f6.flatten(1, 3))  #[B, 30*H/64*W/64]
-        f7_clamped = torch.clamp(f7, min=-5, max=5)
-        pred = torch.sigmoid(f7_clamped)
+        h_feature, l_feature = self.backbone(x) # [1, 3, 416, 416] --> [1, 256, 26, 26], [1, 1024, 13, 13]
+
+        feature = self.neck(h_feature, l_feature)
+
+        cls_feat, reg_feat = self.head(feature)
+
+        obj_pred = self.obj_pred(reg_feat)
+        cls_pred = self.cls_pred(cls_feat)
+        reg_pred = self.reg_pred(reg_feat)
+
+        fmp_size = obj_pred.shape[-2:]
+
+        # anchors: [M, 2]
+        anchors = self.generate_anchors(fmp_size)
 
         # 对 pred 的size做一些view调整，便于后续的处理
-        # -> [B, H*W*BPC, 20] 
-        # -> [B, H*W*BPC, 1] 
-        # -> [B, H*W*BPC, 4] 
-        cls_pred = pred[:,              :self.boundary1].reshape(self.batch_size, self.cell_size*self.cell_size, self.num_classes)
-        cls_pred = torch.unsqueeze(cls_pred, dim=2)
-        cls_pred = cls_pred.repeat(1, 1, self.boxes_per_cell, 1).reshape(self.batch_size, self.cell_size*self.cell_size*self.boxes_per_cell, self.num_classes).contiguous()                                                              
-        obj_pred = pred[:,self.boundary1:self.boundary2].reshape(self.batch_size, self.cell_size*self.cell_size*self.boxes_per_cell, 1).contiguous()
-        reg_pred = pred[:,self.boundary2:              ].reshape(self.batch_size, self.cell_size*self.cell_size*self.boxes_per_cell, 4).contiguous()
-        
-        fmp_size = [self.cell_size, self.cell_size]
-        if not self.trainable:
-            return self.inference(cls_pred, obj_pred, reg_pred, fmp_size)
-        else:
-            box_pred = self.decode_boxes(reg_pred, fmp_size)
+        # [B, A*C, H, W] -> [B, H, W, A*C] -> [B, H*W*A, C]
+        obj_pred = obj_pred.permute(0, 2, 3, 1).contiguous().view(self.batch_size, -1, 1)
+        cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous().view(self.batch_size, -1, self.num_classes)
+        reg_pred = reg_pred.permute(0, 2, 3, 1).contiguous().view(self.batch_size, -1, 4)
 
-            # 网络输出
-            outputs = {"pred_obj": obj_pred,                 # (Tensor) [B, M, 1]
-                       "pred_cls": cls_pred,                 # (Tensor) [B, M, C]
-                       "pred_box": box_pred,                 # (Tensor) [B, M, 4]
-                       "stride": self.stride,                # (Int)
-                       "fmp_size": fmp_size                  # (List) [fmp_h, fmp_w]
-                       }
-            return outputs
+        box_pred = self.decode_boxes(anchors, reg_pred)
+
+        # 网络输出
+        outputs = {"pred_obj": obj_pred,                 # (Tensor) [B, M, 1]
+                   "pred_cls": cls_pred,                 # (Tensor) [B, M, C]
+                   "pred_box": box_pred,                 # (Tensor) [B, M, 4]
+                   "stride": self.stride,                # (Int)
+                   "fmp_size": fmp_size                  # (List) [fmp_h, fmp_w]
+                   }
+        return outputs
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Yolo v1')
     parser.add_argument('--cuda',           default=False,  help='Weather use cuda.')
     parser.add_argument('--batch_size',     default=1,      help='The batch size used by a single GPU during training')
-    parser.add_argument('--image_size',     default=448,    help='input image size')
+    parser.add_argument('--image_size',     default=416,    help='input image size')
     parser.add_argument('--num_classes',    default=20,     help='The number of the classes')
-    parser.add_argument('--boxes_per_cell', default=2,      help='The number of the boxes in one cell')
+    parser.add_argument('--boxes_per_cell', default=5,      help='The number of the boxes in one cell')
     parser.add_argument('--conf_thresh',    default=0.3,    help='confidence threshold')
     parser.add_argument('--nms_thresh',     default=0.5,    help='NMS threshold')
 
@@ -295,9 +261,9 @@ if __name__ == "__main__":
     else:
         device = torch.device('cpu')
 
-    input = torch.randn(1, 3, 448, 448)
+    input = torch.randn(1, 3, 416, 416)
 
-    model = YOLOv1(
+    model = YOLO_v2(
         device = device,
         batch_size=args.batch_size,
         image_size=args.image_size,
@@ -309,4 +275,6 @@ if __name__ == "__main__":
     model.trainable = False
 
     output = model(input)
-    print(output)
+    print(output['pred_obj'].shape)
+    print(output['pred_cls'].shape)
+    print(output['pred_box'].shape)
