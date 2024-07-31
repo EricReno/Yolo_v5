@@ -3,14 +3,13 @@ import argparse
 import numpy as np
 import torch.nn as nn
 
-from neck import Reorg
-from head import Decouple
-from backbone import Darknet19
+from .neck import Reorg
+from .head import Decouple
+from .backbone import Darknet19
 
 class Yolo_V2(nn.Module):
     def __init__(self, 
                  device,
-                 batch_size,
                  image_size,
                  nms_thresh,
                  num_classes,
@@ -23,7 +22,6 @@ class Yolo_V2(nn.Module):
         self.deploy = False
         self.device = device
         self.trainable = False
-        self.batch_size = batch_size
         self.image_size = image_size
         self.nms_thresh = nms_thresh
         self.num_classes = num_classes
@@ -179,39 +177,39 @@ class Yolo_V2(nn.Module):
         return bboxes, scores, labels
 
     @torch.no_grad()
-    def inference(self, cls_pred, obj_pred, reg_pred, fmp_size):
-        # 测试时，笔者默认batch是1，
-        # 因此，我们不需要用batch这个维度，用[0]将其取走。
+    def inference(self, obj_pred, cls_pred, reg_pred, anchors):
+        # 默认batch是1，用[0]将其取走。
         obj_pred = obj_pred[0]       # [H*W, 1]
         cls_pred = cls_pred[0]       # [H*W, C]
         reg_pred = reg_pred[0]       # [C, H*W, 4]
 
         # 每个边界框的得分
-        scores = obj_pred.sigmoid()
+        scores = torch.sqrt(obj_pred.sigmoid() * cls_pred.sigmoid())
 
         # 解算边界框, 并归一化边界框: [H*W, 4]
-        bboxes = self.decode_boxes(reg_pred, fmp_size)
+        bboxes = self.decode_boxes(anchors, reg_pred)
 
         if self.deploy:
             # [n_anchors_all, 4 + C]
             outputs = torch.cat([bboxes, scores], dim=-1)
-            return outputs
         else:
-            scores = scores.numpy()
-            bboxes = bboxes.numpy()
+            scores = scores.cpu().numpy()
+            bboxes = bboxes.cpu().numpy()
 
-            # 后处理
-            bboxes, scores, labels = self.postprocess(bboxes, scores)
+        # 后处理
+        bboxes, scores, labels = self.postprocess(bboxes, scores)
 
         outputs = {
                 "scores": scores,
                 "labels": labels,
                 "bboxes": bboxes
-            }
+        }
 
         return outputs
 
     def forward(self, x):
+        batch_size = x.shape[0]
+
         h_feature, l_feature = self.backbone(x) # [1, 3, 416, 416] --> [1, 256, 26, 26], [1, 1024, 13, 13]
 
         feature = self.neck(h_feature, l_feature)
@@ -229,20 +227,23 @@ class Yolo_V2(nn.Module):
 
         # 对 pred 的size做一些view调整，便于后续的处理
         # [B, A*C, H, W] -> [B, H, W, A*C] -> [B, H*W*A, C]
-        obj_pred = obj_pred.permute(0, 2, 3, 1).contiguous().view(self.batch_size, -1, 1)
-        cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous().view(self.batch_size, -1, self.num_classes)
-        reg_pred = reg_pred.permute(0, 2, 3, 1).contiguous().view(self.batch_size, -1, 4)
+        obj_pred = obj_pred.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 1)
+        cls_pred = cls_pred.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, self.num_classes)
+        reg_pred = reg_pred.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 4)
 
-        box_pred = self.decode_boxes(anchors, reg_pred)
+        if not self.trainable:
+            return self.inference(obj_pred, cls_pred, reg_pred, anchors)
+        else:
+            box_pred = self.decode_boxes(anchors, reg_pred)
 
-        # 网络输出
-        outputs = {"pred_obj": obj_pred,                 # (Tensor) [B, M, 1]
-                   "pred_cls": cls_pred,                 # (Tensor) [B, M, C]
-                   "pred_box": box_pred,                 # (Tensor) [B, M, 4]
-                   "stride": self.stride,                # (Int)
-                   "fmp_size": fmp_size                  # (List) [fmp_h, fmp_w]
-                   }
-        return outputs
+            # 网络输出
+            outputs = {"pred_obj": obj_pred,                 # (Tensor) [B, M, 1]
+                       "pred_cls": cls_pred,                 # (Tensor) [B, M, C]
+                       "pred_box": box_pred,                 # (Tensor) [B, M, 4]
+                       "stride": self.stride,                # (Int)
+                       "fmp_size": fmp_size                  # (List) [fmp_h, fmp_w]
+                       }
+            return outputs
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Yolo v1')
@@ -263,7 +264,7 @@ if __name__ == "__main__":
 
     input = torch.randn(1, 3, 416, 416)
 
-    model = YOLO_v2(
+    model = Yolo_V2(
         device = device,
         batch_size=args.batch_size,
         image_size=args.image_size,

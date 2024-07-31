@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from utils import Conv2d
+from .utils import Conv2d
 
 class Reorg(nn.Module):
     """

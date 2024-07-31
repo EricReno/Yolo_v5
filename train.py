@@ -1,12 +1,11 @@
+import os
 import time
 import torch
-torch.autograd.set_detect_anomaly(True)
 import numpy
 import argparse
 
-# from eval import VOCEvaluator
-from model.yolo_v1 import YOLOv1
-from metric.criterion import Yolov1Loss
+from model.yolo_v2 import Yolo_V2
+from metric.criterion import V2_Loss
 from dataset.voc import VOCDataset
 from dataset.utils import CollateFunc
 from dataset.augment import Augmentation
@@ -22,8 +21,8 @@ def parse_args():
     parser.add_argument('--cuda',           default=True,                   help='Weather use cuda.')
     parser.add_argument('--worker_number',  default=1,                     help='Number Of Logical Processors')
 
-    parser.add_argument('--batch_size',     default=1,                     help='The batch size used by a single GPU during training')
-    parser.add_argument('--image_size',     default=448,                    help='Input image size')
+    parser.add_argument('--batch_size',     default=8,                     help='The batch size used by a single GPU during training')
+    parser.add_argument('--image_size',     default=416,                    help='Input image size')
     parser.add_argument('--data_root',      default='E://data/VOCdevkit',   help='The path where the dataset is stored')
     parser.add_argument('--data_augment',   default=['RandomSaturationHue', 'RandomContrast', 'RandomBrightness', 'RandomSampleCrop', 'RandomExpand', 
                            'RandomHorizontalFlip'],                         help="[RandomExpand,RandomCenterCropPad,RandomCenterCropPad, RandomBrightness], default Resize")
@@ -34,63 +33,25 @@ def parse_args():
     parser.add_argument('--classes_number', default=20,                     help='The number of the classes')
 
     
-    parser.add_argument('--epoch_max',      default=135,                    help='The maximum epoch')
+    parser.add_argument('--epoch_max',      default=160,                    help='The maximum epoch')
     parser.add_argument('--epoch_warmup',   default=1,                      help='Epoch for warm_up')
-    parser.add_argument('--epoch_second',   default=75,                     help='Epoch for second')
-    parser.add_argument('--epoch_thirdly',  default=105,                    help='Epoch for finally')
+    parser.add_argument('--epoch_second',   default=60,                     help='Epoch for second')
+    parser.add_argument('--epoch_thirdly',  default=90,                    help='Epoch for finally')
 
-    parser.add_argument('--lr',             default=0.01,                   help='Learning rate.')
-    parser.add_argument('--lr_warmup',      default=0.001,                  help='Lr epoch for warm_up')
-    parser.add_argument('--lr_second',      default=0.001,                  help='Lr epoch for second')
-    parser.add_argument('--lr_thirdly',     default=0.0001,                 help='Lr epoch for finally')
+    parser.add_argument('--lr',             default=0.001,                   help='Learning rate.')
+    parser.add_argument('--lr_warmup',      default=0,                  help='Lr epoch for warm_up')
+    parser.add_argument('--lr_second',      default=0.0001,                  help='Lr epoch for second')
+    parser.add_argument('--lr_thirdly',     default=0.00001,                 help='Lr epoch for finally')
     parser.add_argument('--lr_momentum',    default=0.9,                    help='Lr_momentum')
     parser.add_argument('--lr_weight_decay',default=0.0005,                 help='Lr_weight_decay')
 
-    parser.add_argument('--boxes_per_cell', default=2,                      help='The number of the boxes in one cell')
+    parser.add_argument('--boxes_per_cell', default=5,                      help='The number of the boxes in one cell')
     parser.add_argument('--loss_box_weight',default=5.0,                    help='The number of the classes')
-    parser.add_argument('--loss_noobj_weight',default=0.5,                  help='The number of the classes')
+    parser.add_argument('--loss_obj_weight',default=1.0,                    help='The number of the classes')
+    parser.add_argument('--loss_cls_weight',default=1.0,                    help='The number of the classes')
 
     parser.add_argument('--threshold_nms',  default=0.5,                    help='NMS threshold')
     parser.add_argument('--threshold_conf', default=0.3,                    help='confidence threshold')
-    # # parser.add_argument('--root', default='/data/ryb/', help='The root directory where code and data are stored')
-    # parser.add_argument('--data', default='data/VOCdevkit', help='The path where the dataset is stored')
-    # parser.add_argument('--project', default='ObjectDetection_VOC20', help='The path where the project code is stored')
-    # parser.add_argument('--print_frequency', default=10, type=int, help='The print frequency')
-
-    # # data & model
-    # parser.add_argument('--num_workers', default=16, help='epoch for warm_up')
-    # parser.add_argument('--img_size',   default=448, type=int, help='input image size')
-    
-    
-    # parser.add_argument('--backbone', default='resnet18', help=['resnet18', 'resnet34'])
-    # parser.add_argument('--expand_ratio', default=0.5, help='The expand_ratio')
-    # parser.add_argument('--pooling_size', default=5, help='The pooling size setting')
-
-    
-    # """
-    # Train configuration
-    # """
-
-
-
-
-    # parser.add_argument('--warmup_momentum', default=0.8, help='epoch for warm_up')
-    # parser.add_argument('--grad_accumulate', default=1, type=int, help='gradient accumulation')
-    # parser.add_argument('--resume', default='None', type=str, help=['None','44.pth'])
-    # parser.add_argument('--save_folder', default='results', help='The path for wights')
-    # parser.add_argument('--save_epoch', default=0, help='The epoch when the model parameters are saved')
-    # parser.add_argument('--pretrained', default=False, help='Whether to use pre-training weights')
-    
-    # parser.add_argument('--ema', action='store_true', default=False, help='Model EMA')
-    # """
-    # Evaluate configuration
-    # """
-    
-    # parser.add_argument('--recall_thr', default=101, help='The threshold for recall')
-    # parser.add_argument('--eval_weight', default='84.pth', type=str, help="Trained state_dict file path")
-    # parser.add_argument('--threshold', default=0.5, help='The iou threshold')
-    # parser.add_argument('--real_time', default=True, help='whether to real-time display detection results')
-    # parser.add_argument('--fuse_conv_bn', action='store_true', default=False, help='fuse Conv & BN')
 
     return parser.parse_args()
 
@@ -128,8 +89,7 @@ def train():
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_sampler=train_b_sampler, collate_fn=CollateFunc(), num_workers=args.worker_number, pin_memory=True)
 
     # ----------------------- Build Model ----------------------------------------
-    model = YOLOv1(device = device,
-                   batch_size=args.batch_size,
+    model = Yolo_V2(device = device,
                    image_size=args.image_size,
                    nms_thresh=args.threshold_nms,
                    num_classes=args.classes_number,
@@ -138,11 +98,12 @@ def train():
                    ).to(device)
     model.trainable = True
           
-    criterion = Yolov1Loss(device = device,
+    criterion =  V2_Loss(device = device,
                          num_classes = args.classes_number,
                          boxes_per_cell = args.boxes_per_cell,
                          loss_box_weight = args.loss_box_weight,
-                         loss_noobj_weight = args.loss_noobj_weight,
+                         loss_obj_weight = args.loss_obj_weight,
+                         loss_cls_weight = args.loss_cls_weight,
                          )
     
     grad_accumulate = max(1, round(64 / args.batch_size))
@@ -150,26 +111,7 @@ def train():
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=args.lr_momentum, weight_decay=args.lr_weight_decay)
     
 
-    # max_mAP = 0
     start_epoch = 0
-    # if args.resume != "None":
-    #     ckt_pth = os.path.join(args.root, args.project, 'results', args.resume)
-    #     checkpoint = torch.load(ckt_pth, map_location='cpu')
-    #     max_mAP = checkpoint['mAP']
-    #     start_epoch = checkpoint['epoch'] + 1
-    #     model.load_state_dict(checkpoint["model"])
-    #     optimizer.load_state_dict(checkpoint['optimizer'])
-
-    # evaluator = VOCEvaluator(
-    #     device=device,
-    #     data_dir = os.path.join(args.root, args.data),
-    #     dataset = val_dataset,
-    #     image_sets = args.val_sets,
-    #     ovthresh = args.threshold,  
-    #     class_names = args.class_names,
-    #     recall_thre = args.recall_thr,
-    #     )
-
     # ----------------------- Build Train ----------------------------------------
     start = time.time()
     for epoch in range(start_epoch, args.epoch_max):
@@ -192,12 +134,9 @@ def train():
             outputs = model(images)
 
             ## loss
-            loss_obj, loss_cls, loss_box, loss_noobj, losses = criterion(outputs=outputs, targets=targets).values()
+            loss_dict = criterion(outputs=outputs, targets=targets)
+            [loss_obj, loss_cls, loss_box, losses] = loss_dict.values()
             if grad_accumulate > 1:
-               loss_obj /= grad_accumulate
-               loss_cls /= grad_accumulate
-               loss_box /= grad_accumulate
-               loss_noobj /= grad_accumulate
                losses /= grad_accumulate
             losses.backward()
             
@@ -207,58 +146,22 @@ def train():
                 optimizer.zero_grad()
 
             ## log
-            print("Time [{}], Epoch [{}:{}/{}:{}], lr: {:.4f}, Loss: {:8.4f}, Loss_obj: {:6.3f}, Loss_cls: {:6.3f}, Loss_box: {:6.3f}, Loss_noobj: {:6.3f}".format(time.strftime('%H:%M:%S', time.gmtime(time.time()- start)), 
-                  epoch, args.epoch_max, iteration, len(train_dataloader), optimizer.param_groups[0]['lr'], losses, loss_obj, loss_cls, loss_box, loss_noobj))
+            print("Time [{}], Epoch [{}:{}/{}:{}], lr: {:.4f}, Loss: {:8.4f}, Loss_obj: {:6.3f}, Loss_cls: {:6.3f}, Loss_box: {:6.3f}".format(time.strftime('%H:%M:%S', time.gmtime(time.time()- start)), 
+                  epoch, args.epoch_max, iteration, len(train_dataloader), optimizer.param_groups[0]['lr'], losses, loss_obj, loss_cls, loss_box))
             train_loss += losses.item() * images.size(0)
+        
+        weight = '{}.pth'.format(epoch)
+        ckpt_path = os.path.join(os.getcwd(), 'log', weight)
+        if not os.path.exists(os.path.dirname(ckpt_path)): 
+            os.makedirs(os.path.dirname(ckpt_path))
+        torch.save({'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'epoch': epoch,
+                    'args': args},
+                    ckpt_path)
+        
         train_loss /= len(train_dataloader.dataset)
         writer.add_scalar('Loss/Train', train_loss, epoch)
-
-        # if epoch % 2 == 0:
-        #     model = model if model_ema is None else model_ema.ema
-        #     model.eval()
-        #     val_loss = 0.0  
-        #     with torch.no_grad():
-        #         for iteration, (images, targets) in enumerate(val_dataloader):
-        #             images = images.to(device).float()
-        #             outputs = model(images)  
-        #             loss_dic = criterion(outputs=outputs, targets=targets)
-        #             losses = loss_dic['losses'] #[loss_obj, loss_cls, loss_box, losses]
-
-        #             val_loss += losses.item() * images.size(0) 
-        #     val_loss /= len(val_dataloader.dataset) 
-        #     writer.add_scalar('Loss/val', val_loss, epoch)  
-
-        #     # save_model
-        #     if epoch >= args.save_epoch:
-        #         model.trainable = False
-        #         model.nms_thresh = args.nms_thresh
-        #         model.conf_thresh = args.conf_thresh
-
-        #         weight_name = '{}.pth'.format(epoch)
-        #         result_path = os.path.join(args.root, args.project, args.save_folder, str(epoch))
-        #         checkpoint_path = os.path.join(args.root, args.project, args.save_folder, weight_name)
-                
-        #         with torch.no_grad():
-        #             mAP = evaluator.evaluate(model, result_path)
-                
-        #         writer.add_scalar('mAP', mAP, epoch)
-        #         print("Epoch [{}]".format('-'*100))
-        #         print("Epoch [{}:{}], mAP [{:.4f}]".format(epoch, args.max_epoch, mAP))
-        #         print("Epoch [{}]".format('-'*100))
-        #         if mAP > max_mAP:
-        #             torch.save({'model': model.state_dict(),
-        #                         'mAP': mAP,
-        #                         'optimizer': optimizer.state_dict(),
-        #                         'epoch': epoch,
-        #                         'args': args},
-        #                         checkpoint_path)
-        #             max_mAP = mAP
-                
-        #         model.train()
-        #         model.trainable = True
-        
-        # # LR Schedule
-        # lr_scheduler.step()
 
 if __name__ == "__main__":
     train()
