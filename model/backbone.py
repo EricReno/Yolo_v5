@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from utils import Conv2d
+from .utils import Conv2d
 
 model_urls = {
     "darknet19": "https://github.com/yjh0410/image_classification_pytorch/releases/download/weight/darknet19.pth",

@@ -1,6 +1,5 @@
-import torch
 import torch.nn as nn
-from utils import Conv2d
+from .utils import Conv2d
 
 class Decouple(nn.Module):
     """
