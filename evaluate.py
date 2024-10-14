@@ -329,20 +329,6 @@ if __name__ == "__main__":
                             map_location = 'cpu', 
                             weights_only = False)
     model.load_state_dict(state_dict["model"])
-
-    # model_state_dict = model.state_dict()
-    # # check
-    # for k in list(state_dict["model"].keys()):
-    #     if k in model_state_dict:
-    #         print(k)
-    #         shape_model = tuple(model_state_dict[k].shape)
-    #         shape_checkpoint = tuple(state_dict["model"][k].shape)
-    #         if shape_model != shape_checkpoint:
-    #             state_dict["model"].pop(k)
-    #     else:
-    #         state_dict["model"].pop(k)
-    #         print('Unused key: ', k)
-
     print('mAP:', state_dict['mAP'])
 
 

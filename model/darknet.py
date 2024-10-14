@@ -155,8 +155,8 @@ if __name__ == "__main__":
     input = torch.randn(1, 3, 512, 512)
 
     model, _ = build_backbone(
-        'cspdarknet_s',
-        pretrained=True)
+        'cspdarknet_n',
+        pretrained=False)
     
     t0 = time.time()
     outputs = model(input)
