@@ -50,7 +50,7 @@ def parse_args():
                                  'cspdarknet_l', 'cspdarknet_m', 'cspdarknet_x'
                                  ],
                         help='Backbone network architecture.')
-    parser.add_argument('--neck', 
+    parser.add_argument('--neck',
                         default='sppf',
                         type=str,
                         choices=['sppf', 'csp_sppf'],
@@ -62,7 +62,7 @@ def parse_args():
                         help='Feature Pyramid Network (FPN) architecture.')
     
     parser.add_argument('--image_size',
-                        default=640,
+                        default=512,
                         type=int,
                         help='Input image size.')
     
@@ -125,7 +125,7 @@ def parse_args():
     
     # Training settings
     parser.add_argument('--batch_size',
-                        default=8,
+                        default=24,
                         type=int,
                         help='Batch size used during training (per GPU).')
     
@@ -183,7 +183,7 @@ def parse_args():
     
     # Model checkpoint
     parser.add_argument('--model_weight_path',         
-                        default='None',             
+                        default='144.pth',             
                         type=str,
                         help='Path to the initial model weights.')
 
