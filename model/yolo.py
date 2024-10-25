@@ -264,6 +264,10 @@ class YOLO(nn.Module):
             bboxes = box_preds
             # [n_anchors_all, 4 + C]
             outputs = torch.cat([bboxes, scores], dim=-1)
+<<<<<<< HEAD:model/yolo.py
+=======
+
+>>>>>>> dd965f49a1e0ea3f477e008e2992bdd99cc3e8cc:model/yolov3.py
         else:
             bboxes, scores, labels = self.postprocess(
                 all_obj_preds, all_cls_preds, all_box_preds)
