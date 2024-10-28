@@ -17,7 +17,7 @@ from dataset.build import build_transform, build_dataset, build_dataloader
 
 def train():
     args = parse_args()
-    writer = SummaryWriter('log')
+    writer = SummaryWriter('deploy')
     print("Setting Arguments.. : ", args)
     print("----------------------------------------------------------")
 
@@ -100,7 +100,6 @@ def train():
                 if model_ema is not None:
                    model_ema.update(model)
 
-            ## log
             print("Time [{}], Epoch [{}:{}/{}:{}], lr: {:.5f}, Loss: {:8.4f}, Loss_obj: {:8.4f}, Loss_cls: {:6.3f}, Loss_box: {:6.3f}".format(time.strftime('%H:%M:%S', time.gmtime(time.time()- start)), 
                   epoch, args.epochs_total, iteration+1, len(train_dataloader), optimizer.param_groups[2]['lr'], losses, loss_obj, loss_cls, loss_box))
             train_loss += losses.item() * images.size(0)
@@ -116,7 +115,7 @@ def train():
         model_eval.trainable = False
         # save_model
         if epoch >= args.save_checkpoint_epoch:
-            ckpt_path = os.path.join(os.getcwd(), 'log', '{}.pth'.format(epoch))
+            ckpt_path = os.path.join(os.getcwd(), 'deploy', 'best.pth')
             if not os.path.exists(os.path.dirname(ckpt_path)):
                 os.makedirs(os.path.dirname(ckpt_path))
             

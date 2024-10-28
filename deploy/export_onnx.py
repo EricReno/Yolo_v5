@@ -7,7 +7,7 @@ from config import parse_args
 from model.build import build_yolo
 
 def export(input, model, weight_name):
-    weight_path = os.path.join(os.getcwd().replace('deploy', 'log'), weight_name)
+    weight_path = os.path.join(os.getcwd(), weight_name)
     pt_onnx = weight_path.replace('.pth', '.onnx')
 
     state_dict = torch.load(weight_path, 

@@ -37,7 +37,7 @@ def build_optimizer(args, model, resume=None):
 
     start_epoch = 0
     if args.resume_weight_path and args.resume_weight_path != 'None':
-        ckpt_path = os.path.join('log', args.resume_weight_path)
+        ckpt_path = os.path.join('deploy', args.resume_weight_path)
         checkpoint = torch.load(ckpt_path, weights_only=False)
         # checkpoint state dict
         try:

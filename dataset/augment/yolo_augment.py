@@ -1,9 +1,11 @@
+import os
 import cv2
 import math
 import torch
 import random
 import numpy as np
 import albumentations as albu
+os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 
 # ------------------------- Basic augmentations -------------------------
 ## Color transform

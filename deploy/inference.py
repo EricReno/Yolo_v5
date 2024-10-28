@@ -4,21 +4,57 @@ import time
 import numpy
 import argparse
 import onnxruntime
+from xml.dom import minidom
+import xml.etree.ElementTree as ET
 
 fps = []
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Inference VOC20')
+    parser = argparse.ArgumentParser(description='Inference Motorcycle')
     parser.add_argument('--cuda', default=True, help='Use CUDA for inference.')
-    parser.add_argument('--onnx', default='yolo_darknet_tiny.onnx', help='Path to the ONNX model file.')
+    parser.add_argument('--onnx', default='best.onnx', help='Path to the ONNX model file.')
     parser.add_argument('--image_size', default=512, type=int, help='Input image size.')
-    parser.add_argument('--confidence', default=0.3, type=float, help='Confidence threshold for object detection.')
-    parser.add_argument('--nms_thresh', default=0.5, type=float, help='NMS threshold.')
-    parser.add_argument('--class_names', nargs='+', default=['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 
-                                                             'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 
-                                                             'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 
-                                                             'train', 'tvmonitor'], help='List of class names.')
+    parser.add_argument('--confidence', default=0.5, type=float, help='Confidence threshold for object detection.')
+    parser.add_argument('--nms_thresh', default=0.2, type=float, help='NMS threshold.')
+    parser.add_argument('--class_names', nargs='+', default=['person', 'bicycle', 'motorcycle'], help='List of class names.')
     return parser.parse_args()
+
+def save_results_to_xml(image_name, bboxes, labels, scores, class_names, image_size):
+    root = ET.Element("annotations")
+    
+    # 添加 folder 和 filename
+    folder_elem = ET.SubElement(root, "folder").text = "E:\\data\\FireDetection\\Annotations"
+    filename_elem = ET.SubElement(root, "filename").text = image_name
+    
+    # 添加 size 元素
+    size_elem = ET.SubElement(root, "size")
+    ET.SubElement(size_elem, "width").text = str(image_size[0])
+    ET.SubElement(size_elem, "height").text = str(image_size[1])
+    ET.SubElement(size_elem, "depth").text = "3"  # Assuming RGB images
+
+
+    for bbox, label, score in zip(bboxes, labels, scores):
+        obj = ET.SubElement(root, "object")
+        ET.SubElement(obj, "name").text = class_names[label]
+        ET.SubElement(obj, "score").text = str(score)
+
+        bbox_elem = ET.SubElement(obj, "bndbox")
+        ET.SubElement(bbox_elem, "xmin").text = str(int(bbox[0]))
+        ET.SubElement(bbox_elem, "ymin").text = str(int(bbox[1]))
+        ET.SubElement(bbox_elem, "xmax").text = str(int(bbox[2]))
+        ET.SubElement(bbox_elem, "ymax").text = str(int(bbox[3]))
+
+     # Convert the tree to a string
+    xml_str = ET.tostring(root, encoding='utf-8')
+
+    # Format the XML string
+    pretty_xml_str = minidom.parseString(xml_str).toprettyxml(indent="  ")
+
+    xml_file_name = os.path.splitext(image_name)[0] + ".xml"
+
+    with open(os.path.join("OutputXML", xml_file_name), "w") as f:
+        f.write(pretty_xml_str)
+
 
 def setup_inference(args):
     providers = [('CUDAExecutionProvider', {'device_id': 0})] if args.cuda else [('CPUExecutionProvider', {})]
@@ -150,10 +186,15 @@ def main():
         labels, scores, bboxes = postinfer(postinfer_input, ratio, args.image_size, args.class_names, args.confidence, args.nms_thresh)
         end_time = time.time()
 
+        # save_results_to_xml(image_name, bboxes, labels, scores, args.class_names, image_size)
+
         # display_fps(image, end_time-start_time)
         draw_bboxes(image, bboxes, labels, scores, args.class_names, class_colors)
 
         cv2.imshow('image', image)
+        
+        cv2.waitKey(0)
+    
         if cv2.waitKey(1) == ord('q'):
             break
 

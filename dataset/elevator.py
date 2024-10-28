@@ -6,11 +6,10 @@ import torch.utils.data as data
 import xml.etree.ElementTree as ET
 from .augment.strong_augment import MixupAugment, MosaicAugment
 
-# VOC_CLASSES = ('aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 
-#                'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorbike', 
-#                'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor')
+# FIRE class names
+# FIRE_CLASSES = ('person', 'bicycle', 'motorcycle)
 
-class VOCDataset(data.Dataset):
+class Elevator(data.Dataset):
     def __init__(self,
                  img_size,
                  is_train :bool = False,
@@ -33,10 +32,8 @@ class VOCDataset(data.Dataset):
         self.class_to_ind = dict(zip(voc_classes, range(len(voc_classes))))
 
         self.ids = list()
-        for (year, name) in self.image_set:
-            rootpath = os.path.join(self.data_dir, 'VOC' + year)
-            for line in open(os.path.join(rootpath, 'ImageSets', 'Main', name+'.txt')):
-                self.ids.append((rootpath, line.strip()))
+        for line in open(os.path.join(self.data_dir, self.image_set+'.txt')):
+            self.ids.append((self.data_dir, line.strip()))
         
         # 设置 mosaic 相关的参数
         self.mosaic_prob = 1.0 if mosaic_augment else 0.0
@@ -70,9 +67,6 @@ class VOCDataset(data.Dataset):
     
     def __len__(self):
         return len(self.ids)
-    
-    def __add__(self, other: data.Dataset) -> data.ConcatDataset:
-        return super().__add__(other)
     
     # ------------ Mosaic & Mixup ------------
     def load_mosaic(self, index):
@@ -144,7 +138,6 @@ class VOCDataset(data.Dataset):
             for i, pt in enumerate(pts):
                 cur_pt = float(bbox.find(pt).text)
                 bndbox.append(cur_pt)
-
             label_idx = self.class_to_ind[name]+(0.1 if difficult else 0)
             bndbox.append(label_idx)
             anno += bndbox

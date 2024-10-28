@@ -140,7 +140,7 @@ class Evaluator():
                     for index, box in enumerate(bboxes):
                         text = "%s:%s"%(self.class_names[labels[index]], str(round(float(scores[index]), 2)))
                         (w, h), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_COMPLEX, 1, 1)
-                        cv2.rectangle(prediction_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), class_colors[labels[index]])
+                        cv2.rectangle(prediction_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), class_colors[labels[index]], int(box[2]-box[0])//1000)
                         cv2.rectangle(prediction_image, (int(box[0]), int(box[1])),  (int(box[0]) + w, int(box[1]) + h), class_colors[labels[index]], -1) 
                         cv2.putText(prediction_image, text, (int(box[0]), int(box[1])+h), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 1)
                     text_image = np.zeros((40, prediction_image.shape[1], 3), dtype=np.uint8)
@@ -151,7 +151,7 @@ class Evaluator():
                     for index, box in enumerate(target['boxes']):
                         text = self.class_names[int(target['labels'][index])]
                         (w, h), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_COMPLEX, 1, 1)
-                        cv2.rectangle(groundtruth_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), class_colors[int(target['labels'][index])])
+                        cv2.rectangle(groundtruth_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), class_colors[int(target['labels'][index])], int(box[2]-box[0])//1000)
                         cv2.rectangle(groundtruth_image, (int(box[0]), int(box[1])),  (int(box[0]) + w, int(box[1]) + h), class_colors[int(target['labels'][index])], -1) 
                         cv2.putText(groundtruth_image, text, (int(box[0]), int(box[1])+h), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 1)
                     text_image = np.zeros((40, groundtruth_image.shape[1], 3), dtype=np.uint8)
@@ -159,6 +159,7 @@ class Evaluator():
                     groundtruth_image = np.concatenate((groundtruth_image, text_image), axis=0)
 
                     show_image = np.concatenate((groundtruth_image, prediction_image), axis=1)
+                    show_image = cv2.resize(show_image, (1920, 1080))
                     cv2.imshow('1', show_image)
                     cv2.waitKey(0)
                     cv2.destroyAllWindows()
@@ -214,6 +215,7 @@ class Evaluator():
         print('Results:')
 
         aps = []
+        pr = {}
         for cls_ind, cls_name in enumerate(self.class_names):
             dets = self.load_dets(cls_name)
             gts, npos = self.load_gt(cls_name)
@@ -272,6 +274,7 @@ class Evaluator():
                 prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
     
                 ap = self.voc_ap(rec, prec)
+                pr[cls_name] = prec[-1]
 
                 # ## 插值的P-R曲线
                 # rec_interp=np.linspace(0, 1, self.recall_thre) #101steps, from 0% to 100% 
@@ -309,13 +312,14 @@ def build_eval(args, dataset, device):
     
 if __name__ == "__main__":
     args = parse_args()
+    args.eval_visualization = True
     args.resume_weight_path = "None"
+
     if args.cuda and torch.cuda.is_available():
         device = torch.device('cuda')
         print('use cuda')
     else:
         device = torch.device('cpu')
-
 
     val_transformer = build_transform(args, is_train=False)
     val_dataset = build_dataset(args, is_train=False, transformer=val_transformer)
@@ -325,10 +329,11 @@ if __name__ == "__main__":
     model = model.eval()
 
 
-    state_dict = torch.load(f = os.path.join('log', args.model_weight_path), 
+    state_dict = torch.load(f = os.path.join('deploy', args.model_weight_path), 
                             map_location = 'cpu', 
                             weights_only = False)
     model.load_state_dict(state_dict["model"])
+    print('epoch:', state_dict['epoch'])
     print('mAP:', state_dict['mAP'])
 
 
