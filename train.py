@@ -31,7 +31,7 @@ def train():
     train_transformer = build_transform(args, is_train=True)
 
     val_dataset = build_dataset(args, is_train=False, transformer=val_transformer)
-    train_dataset = build_dataset(args, True, train_transformer, )
+    train_dataset = build_dataset(args, True, train_transformer)
     train_dataloader = build_dataloader(args, train_dataset)
 
     model = build_yolo(args, device, True)

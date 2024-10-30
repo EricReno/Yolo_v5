@@ -15,7 +15,7 @@ def parse_args():
     
     # Data settings
     parser.add_argument('--data_root',
-                        default='/data/Motorcycle',
+                        default='/data/UA-DETRAC-G2',
                         type=str,
                         help='Root directory of the dataset.')
     
@@ -44,9 +44,9 @@ def parse_args():
 
     # Model settings
     parser.add_argument('--backbone', 
-                        default='cspdarknet_n',
+                        default='cspdarknet_s',
                         type=str,
-                        choices=['cspdarknet_n', 'cspdarknet_t', 'cspdarknet_s', 
+                        choices=['cspdarknet_n', 'cspdarknet_t', 'cspdarknet_s',
                                  'cspdarknet_l', 'cspdarknet_m', 'cspdarknet_x'
                                  ],
                         help='Backbone network architecture.')
@@ -67,12 +67,13 @@ def parse_args():
                         help='Input image size.')
     
     parser.add_argument('--num_classes',
-                        default=3,
+                        default=1,
                         type=int,
                         help='Number of object classes.')
     
     parser.add_argument('--class_names',
-                        default=['person', 'bicycle', 'motorcycle'],
+                        default=['car'],
+                        # default=['car', 'bus', 'vans', 'others'],
                         type=str,
                         help='List of class names.')
 
@@ -124,7 +125,7 @@ def parse_args():
     
     # Training settings
     parser.add_argument('--batch_size',
-                        default=8,
+                        default=12,
                         type=int,
                         help='Batch size used during training (per GPU).')
     

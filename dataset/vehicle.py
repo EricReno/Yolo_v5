@@ -6,17 +6,17 @@ import torch.utils.data as data
 import xml.etree.ElementTree as ET
 from .augment.strong_augment import MixupAugment, MosaicAugment
 
-# FIRE class names
-# FIRE_CLASSES = ('person', 'bicycle', 'motorcycle)
+# VEHICLE class names
+# VEHICLE_CLASSES = ('car', 'bus', 'vans', 'others')
 
-class Elevator(data.Dataset):
+class VEHICLE(data.Dataset):
     def __init__(self,
                  img_size,
                  is_train :bool = False,
                  data_dir :str = None, 
                  transform = None,
                  image_set :list = [],
-                 voc_classes :list = [],
+                 vehicle_classes :list = [],
                  mosaic_augment :bool = False,
                  mixup_augment : bool = False) -> None:
         super().__init__()
@@ -26,14 +26,14 @@ class Elevator(data.Dataset):
         self.transform = transform
         self.image_set = image_set
         
-        self._imgpath = os.path.join('%s', 'JPEGImages', '%s.jpg')
-        self._annopath = os.path.join('%s', 'Annotations', '%s.xml')
+        self._imgpath = os.path.join('%s', 'JPEGImages', self.image_set, '%s.jpg')
+        self._annopath = os.path.join('%s', 'Annotations', self.image_set, '%s.txt')
 
-        self.class_to_ind = dict(zip(voc_classes, range(len(voc_classes))))
+        self.class_to_ind = dict(zip(vehicle_classes, range(len(vehicle_classes))))
 
         self.ids = list()
-        for line in open(os.path.join(self.data_dir, self.image_set+'.txt')):
-            self.ids.append((self.data_dir, line.strip()))
+        for line in os.listdir(os.path.join(self.data_dir, 'JPEGImages', self.image_set)):
+            self.ids.append((self.data_dir, line.split('.')[0]))
         
         # 设置 mosaic 相关的参数
         self.mosaic_prob = 1.0 if mosaic_augment else 0.0
@@ -121,25 +121,27 @@ class Elevator(data.Dataset):
         return image, id
     
     def pull_anno(self, index):
-        id = self.ids[index]
+        img_id = self.ids[index]
+        label = self._annopath %img_id
+        image = cv2.imread(self._imgpath % img_id, cv2.IMREAD_COLOR)
+    
+        h, w = image.shape[:2]
 
         anno = []
-        xml = ET.parse(self._annopath %id).getroot()
-        for obj in xml.iter('object'):
-            difficult = int(obj.find('difficult').text) == 1
-            if self.is_train and difficult:
-                continue
+        with open(label, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                bndbox = []
+                line = line.strip().split()  # 去除首尾空格并按空格分割
+                line = [float(num) for num in line]  # 将字符串转换为浮点数
+                bndbox.append(line[1]*w - line[3]*w//2)
+                bndbox.append(line[2]*h - line[4]*h//2)
+                bndbox.append(line[1]*w + line[3]*w//2)
+                bndbox.append(line[2]*h + line[4]*h//2)
+                # bndbox.append(line[0])
+                bndbox.append(0)
+                
 
-            bndbox = []
-            bbox = obj.find('bndbox')
-            name = obj.find('name').text.lower().strip()
-
-            pts = ['xmin', 'ymin', 'xmax', 'ymax']
-            for i, pt in enumerate(pts):
-                cur_pt = float(bbox.find(pt).text)
-                bndbox.append(cur_pt)
-            label_idx = self.class_to_ind[name]+(0.1 if difficult else 0)
-            bndbox.append(label_idx)
-            anno += bndbox
-
-        return np.array(anno).reshape(-1, 5), id
+                anno += bndbox
+            
+        return np.array(anno).reshape(-1, 5), img_id
