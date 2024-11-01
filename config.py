@@ -9,13 +9,13 @@ def parse_args():
                         help='Enable CUDA for GPU acceleration.')   
 
     parser.add_argument('--num_workers',  
-                        default=4,
+                        default=8,
                         type=int,
                         help='Number of CPU threads to use during data loading.')             
     
     # Data settings
     parser.add_argument('--data_root',
-                        default='/data/UA-DETRAC-G2',
+                        default='/data/TMP_VEHICLE',
                         type=str,
                         help='Root directory of the dataset.')
     
@@ -67,13 +67,12 @@ def parse_args():
                         help='Input image size.')
     
     parser.add_argument('--num_classes',
-                        default=1,
+                        default=5,
                         type=int,
                         help='Number of object classes.')
     
     parser.add_argument('--class_names',
-                        default=['car'],
-                        # default=['car', 'bus', 'vans', 'others'],
+                        default=['car', 'bus', 'vans', 'others', 'slag_truck'],
                         type=str,
                         help='List of class names.')
 

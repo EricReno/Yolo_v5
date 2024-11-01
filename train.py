@@ -37,7 +37,7 @@ def train():
     model = build_yolo(args, device, True)
     compute_flops(model, args.image_size, device)
           
-    loss_function =  build_loss(args, device)
+    loss_function = build_loss(args, device)
     
     evaluator = build_eval(args, val_dataset, device)
     

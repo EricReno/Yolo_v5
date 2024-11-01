@@ -312,7 +312,7 @@ def build_eval(args, dataset, device):
     
 if __name__ == "__main__":
     args = parse_args()
-    args.eval_visualization = True
+    args.eval_visualization = False
     args.resume_weight_path = "None"
 
     if args.cuda and torch.cuda.is_available():

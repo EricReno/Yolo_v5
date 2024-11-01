@@ -10,13 +10,13 @@ import xml.etree.ElementTree as ET
 fps = []
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Inference Motorcycle')
+    parser = argparse.ArgumentParser(description='Inference Vehicle')
     parser.add_argument('--cuda', default=True, help='Use CUDA for inference.')
     parser.add_argument('--onnx', default='best.onnx', help='Path to the ONNX model file.')
     parser.add_argument('--image_size', default=512, type=int, help='Input image size.')
     parser.add_argument('--confidence', default=0.5, type=float, help='Confidence threshold for object detection.')
     parser.add_argument('--nms_thresh', default=0.2, type=float, help='NMS threshold.')
-    parser.add_argument('--class_names', nargs='+', default=['person', 'bicycle', 'motorcycle'], help='List of class names.')
+    parser.add_argument('--class_names', nargs='+', default=['car', 'bus', 'vans', 'others', 'slag_truck'], help='List of class names.')
     return parser.parse_args()
 
 def save_results_to_xml(image_name, bboxes, labels, scores, class_names, image_size):
@@ -173,7 +173,7 @@ def main():
     args = parse_args()
     session = setup_inference(args)
     class_colors = generate_colors(len(args.class_names))
-    cap = cv2.VideoCapture('video.mp4')
+    cap = cv2.VideoCapture('video2.mp4')
 
     while cap.isOpened():
         ret, image = cap.read()

@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from .augment.strong_augment import MixupAugment, MosaicAugment
 
 # VEHICLE class names
-# VEHICLE_CLASSES = ('car', 'bus', 'vans', 'others')
+# VEHICLE_CLASSES = ('car', 'bus', 'vans', 'others', 'slag_truck')
 
 class VEHICLE(data.Dataset):
     def __init__(self,
@@ -16,7 +16,6 @@ class VEHICLE(data.Dataset):
                  data_dir :str = None, 
                  transform = None,
                  image_set :list = [],
-                 vehicle_classes :list = [],
                  mosaic_augment :bool = False,
                  mixup_augment : bool = False) -> None:
         super().__init__()
@@ -28,8 +27,6 @@ class VEHICLE(data.Dataset):
         
         self._imgpath = os.path.join('%s', 'JPEGImages', self.image_set, '%s.jpg')
         self._annopath = os.path.join('%s', 'Annotations', self.image_set, '%s.txt')
-
-        self.class_to_ind = dict(zip(vehicle_classes, range(len(vehicle_classes))))
 
         self.ids = list()
         for line in os.listdir(os.path.join(self.data_dir, 'JPEGImages', self.image_set)):
@@ -131,6 +128,7 @@ class VEHICLE(data.Dataset):
         with open(label, 'r') as f:
             lines = f.readlines()
             for line in lines:
+
                 bndbox = []
                 line = line.strip().split()  # 去除首尾空格并按空格分割
                 line = [float(num) for num in line]  # 将字符串转换为浮点数
@@ -138,9 +136,7 @@ class VEHICLE(data.Dataset):
                 bndbox.append(line[2]*h - line[4]*h//2)
                 bndbox.append(line[1]*w + line[3]*w//2)
                 bndbox.append(line[2]*h + line[4]*h//2)
-                # bndbox.append(line[0])
-                bndbox.append(0)
-                
+                bndbox.append(line[0])
 
                 anno += bndbox
             

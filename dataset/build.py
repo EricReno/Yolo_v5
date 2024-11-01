@@ -14,7 +14,6 @@ def build_dataset(args, is_train, transformer):
                               data_dir       = args.data_root,
                               transform      = transformer,
                               image_set      = args.train_dataset,
-                              vehicle_classes= args.class_names,
                               mosaic_augment = args.mosaic,
                               mixup_augment = args.mix_up
                               )
@@ -24,7 +23,6 @@ def build_dataset(args, is_train, transformer):
                               data_dir       = args.data_root,
                               transform      = transformer,
                               image_set      = args.val_dataset,
-                              vehicle_classes= args.class_names,
                               )
     return datasets
     
