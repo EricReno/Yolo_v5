@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument('--image_size', default=512, type=int, help='Input image size.')
     parser.add_argument('--confidence', default=0.5, type=float, help='Confidence threshold for object detection.')
     parser.add_argument('--nms_thresh', default=0.2, type=float, help='NMS threshold.')
-    parser.add_argument('--class_names', nargs='+', default=['person', 'bicycle', 'motorcycle'], help='List of class names.')
+    parser.add_argument('--class_names', nargs='+', default=['person', 'rider'], help='List of class names.')
     return parser.parse_args()
 
 def save_results_to_xml(image_name, bboxes, labels, scores, class_names, image_size):
@@ -174,6 +174,9 @@ def main():
     session = setup_inference(args)
     class_colors = generate_colors(len(args.class_names))
     cap = cv2.VideoCapture('video.mp4')
+    
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video = cv2.VideoWriter('output.mp4', fourcc, 2, (720, 576))
 
     while cap.isOpened():
         ret, image = cap.read()
@@ -192,6 +195,7 @@ def main():
         draw_bboxes(image, bboxes, labels, scores, args.class_names, class_colors)
 
         cv2.imshow('image', image)
+        video.write(image)
         
         cv2.waitKey(0)
     

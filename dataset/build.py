@@ -1,5 +1,5 @@
 import torch
-from .elevator import Elevator
+from .person import Person
 from .utils import CollateFunc
 from .augment.ssd_augment import SSDAugmentation
 from .augment.yolo_augment import YOLOAugmentation
@@ -9,7 +9,7 @@ def build_dataset(args, is_train, transformer):
         print('==============================')
         print('Build Dataset: Fire and Smoke ...')
         print('Dataset Class_names: {}'.format(args.class_names))
-        datasets = Elevator(img_size       = args.image_size,
+        datasets = Person(img_size       = args.image_size,
                               is_train       = True,
                               data_dir       = args.data_root,
                               transform      = transformer,
@@ -19,7 +19,7 @@ def build_dataset(args, is_train, transformer):
                               mixup_augment = args.mix_up
                               )
     else:
-        datasets = Elevator(img_size       = args.image_size,
+        datasets = Person(img_size       = args.image_size,
                               is_train       = False,
                               data_dir       = args.data_root,
                               transform      = transformer,

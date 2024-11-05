@@ -15,7 +15,7 @@ def parse_args():
     
     # Data settings
     parser.add_argument('--data_root',
-                        default='/data/Motorcycle',
+                        default='/data/PRW',
                         type=str,
                         help='Root directory of the dataset.')
     
@@ -38,7 +38,7 @@ def parse_args():
                         default= False,
                         type=bool)
     parser.add_argument('--min_box_size',
-                        default=8.0, 
+                        default=8.0,
                         type=float,
                         help='min size of target bounding box.')
 
@@ -67,12 +67,13 @@ def parse_args():
                         help='Input image size.')
     
     parser.add_argument('--num_classes',
-                        default=3,
+                        default=2,
                         type=int,
                         help='Number of object classes.')
     
     parser.add_argument('--class_names',
-                        default=['person', 'bicycle', 'motorcycle'],
+                        # default=['person', 'rider'],
+                        default=['0', '1'],
                         type=str,
                         help='List of class names.')
 

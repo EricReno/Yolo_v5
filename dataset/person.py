@@ -9,7 +9,7 @@ from .augment.strong_augment import MixupAugment, MosaicAugment
 # FIRE class names
 # FIRE_CLASSES = ('person', 'bicycle', 'motorcycle)
 
-class Elevator(data.Dataset):
+class Person(data.Dataset):
     def __init__(self,
                  img_size,
                  is_train :bool = False,
