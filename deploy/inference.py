@@ -4,30 +4,44 @@ import time
 import numpy
 import argparse
 import onnxruntime
+from xml.dom import minidom
+import xml.etree.ElementTree as ET
 
-fps = []
+def save_results_to_xml(image_name, bboxes, labels, scores, class_names, image_size):
+    root = ET.Element("annotations")
+    
+    # 添加 folder 和 filename
+    folder_elem = ET.SubElement(root, "folder").text = "E:\\data\\FireDetection\\Annotations"
+    filename_elem = ET.SubElement(root, "filename").text = image_name
+    
+    # 添加 size 元素
+    size_elem = ET.SubElement(root, "size")
+    ET.SubElement(size_elem, "width").text = str(image_size[0])
+    ET.SubElement(size_elem, "height").text = str(image_size[1])
+    ET.SubElement(size_elem, "depth").text = "3"  # Assuming RGB images
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Inference VOC20')
-    parser.add_argument('--cuda', default=True, help='Use CUDA for inference.')
-    parser.add_argument('--onnx', default='yolo_darknet_tiny.onnx', help='Path to the ONNX model file.')
-    parser.add_argument('--image_size', default=512, type=int, help='Input image size.')
-    parser.add_argument('--confidence', default=0.3, type=float, help='Confidence threshold for object detection.')
-    parser.add_argument('--nms_thresh', default=0.5, type=float, help='NMS threshold.')
-    parser.add_argument('--class_names', nargs='+', default=['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 
-                                                             'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 
-                                                             'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 
-                                                             'train', 'tvmonitor'], help='List of class names.')
-    return parser.parse_args()
 
-def setup_inference(args):
-    providers = [('CUDAExecutionProvider', {'device_id': 0})] if args.cuda else [('CPUExecutionProvider', {})]
-    print('Using CUDA' if args.cuda else 'Using CPU')
-    return onnxruntime.InferenceSession(args.onnx, providers=providers)
+    for bbox, label, score in zip(bboxes, labels, scores):
+        obj = ET.SubElement(root, "object")
+        ET.SubElement(obj, "name").text = class_names[label]
+        ET.SubElement(obj, "score").text = str(score)
 
-def generate_colors(num_classes):
-    numpy.random.seed(0)
-    return [tuple(numpy.random.randint(255, size=3).tolist()) for _ in range(num_classes)]
+        bbox_elem = ET.SubElement(obj, "bndbox")
+        ET.SubElement(bbox_elem, "xmin").text = str(int(bbox[0]))
+        ET.SubElement(bbox_elem, "ymin").text = str(int(bbox[1]))
+        ET.SubElement(bbox_elem, "xmax").text = str(int(bbox[2]))
+        ET.SubElement(bbox_elem, "ymax").text = str(int(bbox[3]))
+
+     # Convert the tree to a string
+    xml_str = ET.tostring(root, encoding='utf-8')
+
+    # Format the XML string
+    pretty_xml_str = minidom.parseString(xml_str).toprettyxml(indent="  ")
+
+    xml_file_name = os.path.splitext(image_name)[0] + ".xml"
+
+    with open(os.path.join("OutputXML", xml_file_name), "w") as f:
+        f.write(pretty_xml_str)
 
 def display_fps(image, time):
     fps = f"fps:{round(1 / (time), 2)}"
@@ -85,18 +99,6 @@ def preinfer(image, image_size):
 
     return  image, output, ratio
 
-def infer(input, session):   
-    start = time.time()
-    output = session.run(['output'], {'input': input})
-    end = time.time()
-    
-    print(end-start)
-    print("Inference FPS (Hz):", 1 / (end-start))
-
-    fps.append( 1 / (end-start))
-
-    return output
-
 def postinfer(input, ratio, image_size, class_names, conf_thresh, nms_thresh):
     bboxes = input[0][:, :4]
     scores = input[0][:, 4:]
@@ -133,34 +135,100 @@ def postinfer(input, ratio, image_size, class_names, conf_thresh, nms_thresh):
 
     return labels, scores, bboxes
 
-def main():
-    args = parse_args()
+def setup_inference(args):
+    providers = [('CUDAExecutionProvider', {'device_id': 0})] if args.cuda else [('CPUExecutionProvider', {})]
+    print('Using CUDA' if args.cuda else 'Using CPU')
+
+    return onnxruntime.InferenceSession(args.onnx, providers=providers)
+
+def run(args):
     session = setup_inference(args)
-    class_colors = generate_colors(len(args.class_names))
-    cap = cv2.VideoCapture('video.mp4')
-
-    while cap.isOpened():
-        ret, image = cap.read()
-        if not ret:
-            break
     
-        start_time = time.time()
-        image, infer_input, ratio = preinfer(image, args.image_size)
-        postinfer_input = infer(infer_input, session)
-        labels, scores, bboxes = postinfer(postinfer_input, ratio, args.image_size, args.class_names, args.confidence, args.nms_thresh)
-        end_time = time.time()
+    if args.mode == 'image':
+        # read a video
+        files = [os.path.join(args.path_to_img, file) for file in os.listdir(args.path_to_img)]
+        
+        # for save
+        if args.save:
+            timestamp = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(f'{timestamp}.mp4', fourcc, fps, (int(width), int(height)))
+        
+        for file_path in files:
+            frame = cv2.imread(file_path)
+            frame, input, ratio = preinfer(frame, args.image_size)
+            t0 = time.time()
+            infer = session.run(['output'], {'input': input})
+            labels, scores, bboxes = postinfer(infer, ratio, args.image_size, args.class_names, args.confidence, args.nms_thresh)
 
-        # display_fps(image, end_time-start_time)
-        draw_bboxes(image, bboxes, labels, scores, args.class_names, class_colors)
+            display_fps(frame, time.time()-t0)
+            draw_bboxes(frame, bboxes, labels, scores, args.class_names, (255, 255, 0))
+            
+            if args.save:
+                out.write(frame)
+            
+            if args.show:
+                show_img = cv2.resize(frame, (1920, 1080))
+                cv2.imshow('detection', show_img)
+                ch = cv2.waitKey(0)
+                if ch == 27 or ch == ord("q") or ch == ord("Q"):
+                    break
 
-        cv2.imshow('image', image)
-        if cv2.waitKey(1) == ord('q'):
-            break
+        if args.save: out.release()
+        cv2.destroyAllWindows()
+    
+    if args.mode == 'video':
+        # read a video
+        cap = cv2.VideoCapture(args.path_to_vid)
+        width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        
+        # for save
+        if args.save:
+            timestamp = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(f'{timestamp}.mp4', fourcc, fps, (int(width), int(height)))
+        
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if ret:
+                frame, input, ratio = preinfer(frame, args.image_size)
+                t0 = time.time()
+                infer = session.run(['output'], {'input': input})
+                labels, scores, bboxes = postinfer(infer, ratio, args.image_size, args.class_names, args.confidence, args.nms_thresh)
 
-    cap.release()
-    cv2.destroyAllWindows()
-
-    print('Mean fps:', numpy.mean(fps))
-
+                display_fps(frame, time.time()-t0)
+                draw_bboxes(frame, bboxes, labels, scores, args.class_names, (255, 255, 0))
+                
+                if args.save:
+                    out.write(frame)
+                
+                if args.show:
+                    show_img = cv2.resize(frame, (1920, 1080))
+                    cv2.imshow('detection', show_img)
+                    ch = cv2.waitKey(0)
+                    if ch == 27 or ch == ord("q") or ch == ord("Q"):
+                        break
+            else:
+                break
+        cap.release()
+        if args.save: out.release()
+        cv2.destroyAllWindows()
+        
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Inference Plate')
+    parser.add_argument('--cuda', default=True, help='Use CUDA for inference.')
+    parser.add_argument('--mode', default='video', help=['video, image, camera'])
+    parser.add_argument('--path_to_vid', default='plate.mp4')
+    parser.add_argument('--path_to_img', default='D:\SV_Person_Detection\data\BK\\bk\data_realpeople\JPEGImages')
+    parser.add_argument('--show', default=True)
+    parser.add_argument('--save', default=False)
+    parser.add_argument('--onnx', default='plate.onnx', help='Path to the ONNX model file.')
+    parser.add_argument('--image_size', default=640, type=int, help='Input image size.')
+    parser.add_argument('--confidence', default=0.7, type=float, help='Confidence threshold for object detection.')
+    parser.add_argument('--nms_thresh', default=0.5, type=float, help='NMS threshold.')
+    parser.add_argument('--class_names', default=['plate'], help='List of class names.')
+    args = parser.parse_args()
+    
+    run(args)
