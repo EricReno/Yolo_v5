@@ -117,7 +117,6 @@ def load_annotations(xml_folders):
     widths = []
     heights = []
     for xml_folder in xml_folders:
-        xml_folder = os.path.join(xml_folder, 'Annotations')
         for xml_file in os.listdir(xml_folder):
             if not xml_file.endswith('.xml'):
                 continue
@@ -172,8 +171,7 @@ def visualize_clusters(data, anchors, labels):
     
 if __name__ == '__main__':
     # 1. 加载标注数据
-    xml_folders = ['CCPD2019\ccpd_base', 'CCPD2019\ccpd_challenge', 'CCPD2019\ccpd_db', 'CCPD2019\ccpd_fn', 'CCPD2019\ccpd_rotate', 
-                   'CCPD2019\ccpd_tilt', 'CCPD2019\ccpd_weather', 'CCPD2020\ccpd_green', 'CCPD2021\CCPD_yellow']
+    xml_folders = ['Mini/Annotations', 'Private/Annotations', 'Public/Annotations']
     data = load_annotations(xml_folders)
     print(f"Loaded {len(data)} bounding boxes")
     
@@ -183,7 +181,7 @@ if __name__ == '__main__':
     anchors = anchors.astype(int)
     
     # 3. 可视化聚类结果
-    # visualize_clusters(data, anchors, labels)
+    visualize_clusters(data, anchors, labels)
     
     # 4. 打印锚框结果
     print("Anchor Boxes for YOLO:")
@@ -199,3 +197,4 @@ if __name__ == '__main__':
     Anchor Boxes for Public:
     (28, 111),(43, 76),(35, 116),(41, 125),(48, 137),(58, 157),(70, 205),(101, 312),(180, 370)
     """
+    
