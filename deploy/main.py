@@ -52,15 +52,15 @@ def save_results_to_xml(args, label_path, bboxes, labels, scores, shape):
 def run(arg):
     session = setup_inference(args)
     
+    # for save
+    if args.save:
+        timestamp = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(f'{timestamp}.mp4', fourcc, fps, (int(width), int(height)))
+    
     if args.mode == 'image':
         # read a video
         files = [os.path.join(args.path_to_img, file) for file in os.listdir(args.path_to_img)]
-        
-        # for save
-        if args.save:
-            timestamp = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(f'{timestamp}.mp4', fourcc, fps, (int(width), int(height)))
         
         for file_path in files:
             image = cv2.imread(file_path)
@@ -93,12 +93,6 @@ def run(arg):
         height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         fps = cap.get(cv2.CAP_PROP_FPS)
         
-        # for save
-        if args.save:
-            timestamp = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(f'{timestamp}.mp4', fourcc, fps, (int(width), int(height)))
-        
         while cap.isOpened():
             ret, frame = cap.read()
             if ret:
@@ -120,9 +114,10 @@ def run(arg):
             else:
                 break
         cap.release()
-        if args.save: out.release()
         cv2.destroyAllWindows()
     
+    if args.save: 
+        out.release()
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Inference Elevator')
